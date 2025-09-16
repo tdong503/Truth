@@ -1,0 +1,14 @@
+{
+  "name": "wolfword-game",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server/server.js",
+    "build": "cd client && npm install && npm run build"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "socket.io": "^4.7.5"
+  }
+}
