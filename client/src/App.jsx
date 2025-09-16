@@ -4,7 +4,7 @@ import HiddenCard from "./HiddenCard";
 
 const socket = io();
 
-// 玩家列表
+// 玩家列表组件
 function PlayerList({ players, currentHostId, creatorId }) {
     return (
         <ul style={{ listStyle: "none", padding: 0 }}>
@@ -31,19 +31,8 @@ export default function App() {
     const [selectedVotes, setSelectedVotes] = useState([]);
     const [result, setResult] = useState(null);
 
-    const [creatorId, setCreatorId] = useState(null);
-    const [currentHostId, setCurrentHostId] = useState(null);
-
-    // === ★ 新增：生成或获取持久化的 playerId
-    const getOrCreatePlayerId = () => {
-        let pid = localStorage.getItem("playerId");
-        if (!pid) {
-            pid = Math.random().toString(36).substr(2, 9);
-            localStorage.setItem("playerId", pid);
-        }
-        return pid;
-    };
-    const playerId = getOrCreatePlayerId();
+    const [creatorId, setCreatorId] = useState(null);      // 房主
+    const [currentHostId, setCurrentHostId] = useState(null); // 主持人
 
     useEffect(() => {
         socket.on("playerList", list => setPlayers(list));
@@ -57,49 +46,31 @@ export default function App() {
         socket.on("startVote", list => { setPlayers(list); setSelectedVotes([]); setPhase("vote"); });
         socket.on("roundResult", res => { setResult(res); setPhase("result"); });
         socket.on("newHost", ({ id }) => setCurrentHostId(id));
-
-        // === ★ 新增：页面加载/刷新时尝试恢复状态
-        const savedRoomId = localStorage.getItem("roomId");
-        if (savedRoomId && playerId) {
-            socket.emit("reconnectPlayer", { playerId, roomId: savedRoomId });
-        }
     }, []);
 
-    // === 创建房间 ===
     const createRoom = () => {
-        socket.emit(
-            "createRoom",
-            { name, maxPlayers: 12, duration: 60, playerId }, // ★ 传持久化playerId
-            res => {
-                if (res.roomId) {
-                    setRoomId(res.roomId);
-                    setCreatorId(res.creatorId);
-                    localStorage.setItem("roomId", res.roomId); // ★ 保存房间ID
-                    setPhase("waiting");
-                }
-            }
-        );
+        socket.emit("createRoom", { name, maxPlayers: 12, duration: 60 }, res => {
+            setRoomId(res.roomId);
+            setCreatorId(res.creatorId);
+        });
+        setPhase("waiting");
     };
 
-    // === 加入房间 ===
     const joinRoom = () => {
-        socket.emit(
-            "joinRoom",
-            { roomId, name, playerId },
-            res => {
-                if (!res.error) {
-                    setCreatorId(res.creatorId);
-                    localStorage.setItem("roomId", res.roomId); // ★ 保存房间ID
-                    setPhase("waiting");
-                } else alert(res.error);
-            }
-        );
+        socket.emit("joinRoom", { roomId, name }, res => {
+            if (!res.error) {
+                setCreatorId(res.creatorId);
+                setPhase("waiting");
+            } else alert(res.error);
+        });
     };
 
     const startGame = () => socket.emit("startGame", { roomId });
 
+    // === 页面渲染 ===
     return (
         <div>
+            {/* 所有阶段都显示玩家列表 */}
             {players.length > 0 && (
                 <div>
                     <h3>房间ID: {roomId}</h3>
@@ -119,7 +90,7 @@ export default function App() {
 
             {phase === "waiting" && (
                 <div>
-                    {playerId === creatorId && (
+                    {socket.id === creatorId && (
                         <button onClick={startGame}>开始游戏（房主专属）</button>
                     )}
                 </div>
@@ -128,21 +99,18 @@ export default function App() {
             {phase !== "lobby" && phase !== "waiting" && (
                 <div>
                     <h2>身份</h2>
-                    <HiddenCard
-                        text={myWord ? `${role}，词语是：${myWord}` : role}
-                        cover="盖牌"
-                        width={600}
-                        height={50}
-                    />
+                    <HiddenCard text={myWord ? `${role}，词语是：${myWord}` : role} cover="盖牌" width={600} height={50} />
                 </div>
             )}
 
             {phase === "role" && (
                 <div>
-                    {playerId === currentHostId && (
+                    {socket.id === currentHostId && (
                         <button onClick={() => socket.emit("getWordList", { roomId })}>获取词列表（主持人专属）</button>
                     )}
-                    {playerId !== currentHostId && <p>等待主持人获取词列表...</p>}
+                    {socket.id !== currentHostId && (
+                        <p>等待主持人获取词列表...</p>
+                    )}
                 </div>
             )}
 
@@ -150,9 +118,7 @@ export default function App() {
                 <div>
                     <h2>选择词</h2>
                     {wordOptions.map((w, idx) => (
-                        <button key={idx} onClick={() => socket.emit("selectWord", { roomId, selected: w })}>
-                            {w}
-                        </button>
+                        <button key={idx} onClick={() => socket.emit("selectWord", { roomId, selected: w })}>{w}</button>
                     ))}
                 </div>
             )}
@@ -167,12 +133,8 @@ export default function App() {
             {phase === "endDiscussion" && (
                 <div>
                     <h2>主持人选择胜方</h2>
-                    <button onClick={() => socket.emit("selectWinner", { roomId, winner: "good" })}>
-                        好人胜
-                    </button>
-                    <button onClick={() => socket.emit("selectWinner", { roomId, winner: "wolf" })}>
-                        狼人胜
-                    </button>
+                    <button onClick={() => socket.emit("selectWinner", { roomId, winner: "good" })}>好人胜</button>
+                    <button onClick={() => socket.emit("selectWinner", { roomId, winner: "wolf" })}>狼人胜</button>
                 </div>
             )}
 
@@ -180,9 +142,7 @@ export default function App() {
                 <div>
                     <h2>狼人击杀</h2>
                     {players.map(p => (
-                        <button key={p.id} onClick={() => socket.emit("wolfKill", { roomId, targetId: p.id })}>
-                            {p.name}
-                        </button>
+                        <button key={p.id} onClick={() => socket.emit("wolfKill", { roomId, targetId: p.id })}>{p.name}</button>
                     ))}
                 </div>
             )}
@@ -191,27 +151,18 @@ export default function App() {
                 <div>
                     <h2>投票选狼（2个）</h2>
                     {players.map(p => (
-                        <button
-                            key={p.id}
-                            onClick={() => {
-                                if (selectedVotes.includes(p.id)) {
-                                    setSelectedVotes(selectedVotes.filter(x => x !== p.id));
-                                } else if (selectedVotes.length < 2) {
-                                    setSelectedVotes([...selectedVotes, p.id]);
-                                }
-                            }}
-                        >
+                        <button key={p.id} onClick={() => {
+                            if (selectedVotes.includes(p.id)) {
+                                setSelectedVotes(selectedVotes.filter(x => x !== p.id));
+                            } else if (selectedVotes.length < 2) {
+                                setSelectedVotes([...selectedVotes, p.id]);
+                            }
+                        }}>
                             {p.name} {selectedVotes.includes(p.id) ? "✅" : ""}
                         </button>
                     ))}
                     {selectedVotes.length === 2 && (
-                        <button
-                            onClick={() =>
-                                socket.emit("voteWolves", { roomId, votes: selectedVotes, playerId })
-                            }
-                        >
-                            提交
-                        </button>
+                        <button onClick={() => socket.emit("voteWolves", { roomId, votes: selectedVotes })}>提交</button>
                     )}
                 </div>
             )}
