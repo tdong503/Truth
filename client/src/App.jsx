@@ -35,7 +35,7 @@ export default function App() {
     const [currentHostId, setCurrentHostId] = useState(null);
     const [playerId, setPlayerId] = useState(null); // 固定玩家ID，支持重连
 
-    const [killTargets, setKillTargets] = useState(null); // 设置去掉狼人的列表
+    const [killTargets, setKillTargets] = useState(null); // 目标列表
 
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -73,8 +73,7 @@ export default function App() {
         });
         socket.on("newHost", ({ id }) => setCurrentHostId(id));
         socket.on("killTargetList", (list) => {
-            // 目标列表保存在独立的 state
-            setKillTargets(list);
+            setKillTargets(list); // 安全更新
             setPhase("wolfKill");
         });
     }, []);
@@ -97,8 +96,6 @@ export default function App() {
                         setPhase(res.phase || "waiting");
                         setTimer(res.timer || 0);
                         setPlayerId(savedPlayerId);
-
-                        // ✅ 恢复身份、词、主持人词列表、投票、结果
                         setRole(res.myRole || null);
                         setMyWord(res.myWord || null);
                         setWordOptions(res.wordOptions || []);
@@ -140,7 +137,10 @@ export default function App() {
         });
     };
 
-    const startGame = () => socket.emit("startGame", { roomId });
+    const startGame = () => {
+        setKillTargets(null); // 清除上一局残留
+        socket.emit("startGame", { roomId });
+    };
 
     return (
         <div>
@@ -259,7 +259,7 @@ export default function App() {
             {phase === "wolfKill" && (
                 <div>
                     <h2>狼人击杀</h2>
-                    {killTargets.map((p) => (
+                    {(killTargets || []).map((p) => (
                         <button
                             key={p.id}
                             onClick={() =>
@@ -329,7 +329,7 @@ export default function App() {
                     )}
 
                     {playerId === currentHostId && (
-                        <button onClick={() => socket.emit("startGame", { roomId })}>
+                        <button onClick={startGame}>
                             重新开局
                         </button>
                     )}

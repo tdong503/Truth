@@ -22,6 +22,7 @@ const io = new Server(server);
 
 const rooms = new Map();
 
+// 分配身份
 function assignRoles(playerCount) {
     const roles = Array(playerCount).fill("villager");
     roles[0] = "seer";
@@ -34,6 +35,7 @@ function assignRoles(playerCount) {
     return roles;
 }
 
+// 词库
 const wordBank = [
     "苹果", "香蕉", "西瓜", "桌子", "椅子", "电脑", "手机", "飞机", "汽车",
     "猫", "狗", "老虎", "狮子", "长颈鹿", "河马"
@@ -41,6 +43,31 @@ const wordBank = [
 function getRandomWords(n) {
     const shuffled = [...wordBank].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, n);
+}
+
+// 公共方法：进入狼人击杀阶段
+function enterWolfKill(roomId) {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    room.phase = "wolfKill";
+    room.killTarget = null;
+
+    const wolves = room.players.filter((p) => p.role === "wolf");
+    const nonWolves = room.players.filter((p) => p.role !== "wolf");
+
+    // 所有人都同步完整列表
+    io.to(roomId).emit("playerList", room.players);
+
+    // 狼人发送目标
+    wolves.forEach((w) => {
+        io.to(w.socketId).emit("killTargetList", nonWolves);
+    });
+
+    // 好人发空数组
+    nonWolves.forEach((p) => {
+        io.to(p.socketId).emit("killTargetList", []);
+    });
 }
 
 io.on("connection", (socket) => {
@@ -60,10 +87,10 @@ io.on("connection", (socket) => {
             timer: 0,
             phase: "waiting",
             wordOptions: [],
-            selectedVotes: {}, // ✅ 初始化空对象
+            selectedVotes: {},
+            votesRecord: {},
+            killTarget: null,
             result: null,
-            votesRecord: {}, // 保存投票人 → 被投对象
-            killTarget: null, // 狼人击杀目标
             discussionTimerId: null
         };
 
@@ -108,18 +135,19 @@ io.on("connection", (socket) => {
             phase: room.phase,
             timer: room.timer || 0,
             wordOptions: room.wordOptions || [],
-            myRole: player.role || null,   // ✅ 恢复身份
-            myWord: player.myWord || null, // ✅ 恢复词语
-            selectedVotes: (room.selectedVotes && room.selectedVotes[player.id]) || [], // ✅ 兜底
+            myRole: player.role || null,
+            myWord: player.myWord || null,
+            selectedVotes: (room.selectedVotes && room.selectedVotes[player.id]) || [],
             result: room.result || null
         });
     });
 
+    // 开新局
     socket.on("startGame", ({ roomId }) => {
         const room = rooms.get(roomId);
         if (!room) return;
 
-        // 🔄 重置房间临时状态
+        // 重置临时状态
         room.wordOptions = [];
         room.selectedVotes = {};
         room.votesRecord = {};
@@ -135,6 +163,7 @@ io.on("connection", (socket) => {
         room.players.forEach(p => {
             p.myWord = null;
             p.role = null;
+            io.to(p.socketId).emit("killTargetList", []); // 给前端清空
         });
 
         // 分配主持人
@@ -146,11 +175,12 @@ io.on("connection", (socket) => {
         room.players.forEach((p, i) => (p.role = roles[i]));
 
         room.phase = "role";
-
         io.to(roomId).emit("newHost", { id: room.hostId, name: randomCaptain.name });
+
         room.players.forEach((p) => io.to(p.socketId).emit("yourRole", p.role));
     });
 
+    // 主持人获取词列表
     socket.on("getWordList", ({ roomId }) => {
         const room = rooms.get(roomId);
         if (!room) return;
@@ -163,6 +193,7 @@ io.on("connection", (socket) => {
         room.phase = "wordSelect";
     });
 
+    // 主持人选择词语
     socket.on("selectWord", ({ roomId, selected }) => {
         const room = rooms.get(roomId);
         if (!room) return;
@@ -178,6 +209,7 @@ io.on("connection", (socket) => {
 
         room.phase = "discussion";
         room.timer = room.duration;
+
         io.to(roomId).emit("discussionStart", { duration: room.duration });
 
         let remaining = room.duration;
@@ -194,52 +226,29 @@ io.on("connection", (socket) => {
         }, 1000);
     });
 
+    // 提前结束讨论（主持人）
     socket.on("forceEndDiscussion", ({ roomId }) => {
         const room = rooms.get(roomId);
         if (!room) return;
         const host = room.players.find((p) => p.id === room.hostId);
-        if (!host || socket.id !== host.socketId) return; // 只能主持人触发
+        if (!host || socket.id !== host.socketId) return;
 
         if (room.discussionTimerId) {
             clearInterval(room.discussionTimerId);
             room.discussionTimerId = null;
         }
 
-        room.phase = "wolfKill";
-        room.killTarget = null;
-
-        // 保持完整列表
-        io.to(roomId).emit("playerList", room.players);
-
-        // 狼人可选目标列表
-        const wolves = room.players.filter(p => p.role === "wolf");
-        wolves.forEach((w) => {
-            const targetList = room.players.filter(p => p.role !== "wolf");
-            io.to(w.socketId).emit("killTargetList", targetList);
-        });
+        enterWolfKill(roomId);
     });
 
+    // 主持人选择胜方
     socket.on("selectWinner", ({ roomId, winner }) => {
         const room = rooms.get(roomId);
         if (!room) return;
 
         if (winner === "good") {
-            // 进入狼人击杀
-            room.phase = "wolfKill";
-            room.killTarget = null;
-            const wolves = room.players.filter((p) => p.role === "wolf");
-
-            // 给所有玩家发完整列表（保持 UI 正常）
-            io.to(roomId).emit("playerList", room.players);
-
-            // 单独给狼人发击杀目标
-            wolves.forEach((w) => {
-                const targetList = room.players.filter(p => p.role !== "wolf");
-                io.to(w.socketId).emit("killTargetList", targetList);
-            });
-
+            enterWolfKill(roomId);
         } else {
-            // 全民投票
             room.phase = "vote";
             room.selectedVotes = {};
             room.votesRecord = {};
@@ -247,11 +256,11 @@ io.on("connection", (socket) => {
         }
     });
 
+    // 狼人击杀
     socket.on("wolfKill", ({ roomId, targetId }) => {
         const room = rooms.get(roomId);
         if (!room) return;
 
-        // 只记录一次击杀目标
         if (room.killTarget) return;
         room.killTarget = targetId;
 
@@ -266,12 +275,13 @@ io.on("connection", (socket) => {
             winner,
             seerName: seer?.name || "未知",
             wolfNames: wolves.map(w => w.name),
-            votesRecord: {} // 击杀没有投票
+            votesRecord: {}
         };
 
         io.to(roomId).emit("roundResult", room.result);
     });
 
+    // 全民投票
     socket.on("voteWolves", ({ roomId, votes }) => {
         const room = rooms.get(roomId);
         if (!room) return;
@@ -283,19 +293,17 @@ io.on("connection", (socket) => {
         room.votesRecord[player.name] = room.players.find(p => p.id === targetId)?.name || "无效票";
 
         if (Object.keys(room.selectedVotes).length === room.players.length) {
-            // 统计票数
             const voteCounts = {};
             for (const pid of Object.values(room.selectedVotes)) {
                 voteCounts[pid] = (voteCounts[pid] || 0) + 1;
             }
 
-            // 生成排行
             const voteCountsSorted = Object.entries(voteCounts)
                 .map(([pid, count]) => ({
                     name: room.players.find(p => p.id === pid)?.name || "未知",
                     count
                 }))
-                .sort((a, b) => b.count - a.count); // 从多到少
+                .sort((a, b) => b.count - a.count);
 
             const maxVotes = Math.max(...Object.values(voteCounts));
             const topVoted = Object.entries(voteCounts)
@@ -318,7 +326,7 @@ io.on("connection", (socket) => {
                 seerName: seer?.name || "未知",
                 wolfNames: room.players.filter(p => p.role === "wolf").map(w => w.name),
                 votesRecord: room.votesRecord,
-                voteCountsSorted // ✅ 新增票数排行
+                voteCountsSorted
             };
 
             io.to(roomId).emit("roundResult", room.result);
@@ -329,7 +337,7 @@ io.on("connection", (socket) => {
         for (const [roomId, room] of rooms) {
             const player = room.players.find((p) => p.socketId === socket.id);
             if (player) {
-                player.socketId = null; // 保留玩家状态
+                player.socketId = null;
             }
             io.to(roomId).emit("playerList", room.players);
         }
