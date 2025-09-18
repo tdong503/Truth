@@ -76,6 +76,9 @@ export default function App() {
             setKillTargets(list);
             setPhase("wolfKill");
         });
+        socket.on("errorMessage", (msg) => {
+            alert(msg);
+        });
     }, []);
 
     useEffect(() => {
@@ -137,6 +140,10 @@ export default function App() {
     };
 
     const startGame = () => {
+        if (players.length < 4) {
+            alert("人数不足，至少需要 4 名玩家才能开始游戏");
+            return;
+        }
         setKillTargets(null); // 清除上一局的击杀目标
         socket.emit("startGame", { roomId });
     };

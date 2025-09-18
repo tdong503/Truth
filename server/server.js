@@ -52,16 +52,36 @@ function getRandomWords(n) {
     return shuffled.slice(0, n);
 }
 
-// 分配身份
+// 分配身份（动态分配）
 function assignRoles(playerCount) {
-    const roles = Array(playerCount).fill("villager");
-    roles[0] = "seer";
-    roles[1] = "wolf";
-    roles[2] = "villager";
+    if (playerCount < 4) {
+        throw new Error("至少需要 4 名玩家才能开始游戏");
+    }
+
+    let roles = [];
+
+    // 固定 1 预言家
+    roles.push("seer");
+
+    if (playerCount <= 8) {
+        // 4~8 人：1 狼人
+        roles.push("wolf");
+    } else {
+        // 9 人及以上：2 狼人
+        roles.push("wolf", "wolf");
+    }
+
+    // 剩余填充为村民
+    while (roles.length < playerCount) {
+        roles.push("villager");
+    }
+
+    // 洗牌
     for (let i = roles.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [roles[i], roles[j]] = [roles[j], roles[i]];
     }
+
     return roles;
 }
 
@@ -92,6 +112,13 @@ io.on("connection", (socket) => {
 
     // 创建房间
     socket.on("createRoom", ({ name, maxPlayers, duration }, callback) => {
+        // 安全限制：最小 4 人，最大 12 人
+        if (typeof maxPlayers !== "number" || maxPlayers < 4) {
+            maxPlayers = 4;
+        } else if (maxPlayers > 12) {
+            maxPlayers = 12;
+        }
+
         const playerId = uuidv4();
         const roomId = Math.random().toString(36).substring(2, 8);
 
@@ -122,7 +149,11 @@ io.on("connection", (socket) => {
     socket.on("joinRoom", ({ roomId, name }, callback) => {
         const room = rooms.get(roomId);
         if (!room) return callback({ error: "房间不存在" });
-        if (room.players.length >= room.maxPlayers) return callback({ error: "房间已满" });
+
+        // 检查人数上限
+        if (room.players.length >= room.maxPlayers) {
+            return callback({ error: "房间已满" });
+        }
 
         const playerId = uuidv4();
         room.players.push({ id: playerId, socketId: socket.id, name, role: null, myWord: null });
@@ -164,6 +195,13 @@ io.on("connection", (socket) => {
         const room = rooms.get(roomId);
         if (!room) return;
 
+        // 人数检查
+        if (room.players.length < 4) {
+            io.to(roomId).emit("errorMessage", "人数不足，至少需要 4 名玩家才能开始游戏");
+            return;
+        }
+
+        // 重置房间状态
         room.wordOptions = [];
         room.selectedVotes = {};
         room.votesRecord = {};
@@ -175,21 +213,31 @@ io.on("connection", (socket) => {
             room.discussionTimerId = null;
         }
 
+        // 重置玩家状态
         room.players.forEach(p => {
             p.myWord = null;
             p.role = null;
             io.to(p.socketId).emit("killTargetList", []);
         });
 
+        // 随机主持人
         const randomCaptain = room.players[Math.floor(Math.random() * room.players.length)];
         room.hostId = randomCaptain.id;
 
-        const roles = assignRoles(room.players.length);
-        room.players.forEach((p, i) => (p.role = roles[i]));
+        try {
+            // 分配身份
+            const roles = assignRoles(room.players.length);
+            room.players.forEach((p, i) => (p.role = roles[i]));
+        } catch (err) {
+            io.to(roomId).emit("errorMessage", err.message);
+            return;
+        }
 
+        // 进入角色阶段
         room.phase = "role";
         io.to(roomId).emit("newHost", { id: room.hostId, name: randomCaptain.name });
 
+        // 单独发送身份给每个玩家
         room.players.forEach((p) => io.to(p.socketId).emit("yourRole", p.role));
     });
 
