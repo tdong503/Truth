@@ -4,15 +4,14 @@ import HiddenCard from "./HiddenCard";
 
 const socket = io();
 
-// 玩家列表组件
 function PlayerList({ players, currentHostId, creatorId }) {
     return (
         <ul style={{ listStyle: "none", padding: 0 }}>
             {players.map((p) => (
                 <li key={p.id}>
                     {p.name}
-                    {p.id === creatorId && "(房主 👑)"} {/* 房主 */}
-                    {p.id === currentHostId && "(主持人 🏅)"} {/* 主持人 */}
+                    {p.id === creatorId && "(房主 👑)"}
+                    {p.id === currentHostId && "(主持人 🏅)"}
                 </li>
             ))}
         </ul>
@@ -33,13 +32,14 @@ export default function App() {
 
     const [creatorId, setCreatorId] = useState(null);
     const [currentHostId, setCurrentHostId] = useState(null);
-    const [playerId, setPlayerId] = useState(null); // 固定玩家ID，支持重连
+    const [playerId, setPlayerId] = useState(null);
 
-    const [killTargets, setKillTargets] = useState(null); // 目标列表
-
+    const [killTargets, setKillTargets] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
-    // socket 事件监听
+    // 新增：主持人自定义词
+    const [customWord, setCustomWord] = useState("");
+
     useEffect(() => {
         socket.on("playerList", (list) => setPlayers(list));
         socket.on("yourRole", (r) => {
@@ -73,12 +73,11 @@ export default function App() {
         });
         socket.on("newHost", ({ id }) => setCurrentHostId(id));
         socket.on("killTargetList", (list) => {
-            setKillTargets(list); // 安全更新
+            setKillTargets(list);
             setPhase("wolfKill");
         });
     }, []);
 
-    // 页面加载时尝试重连
     useEffect(() => {
         const savedRoomId = localStorage.getItem("roomId");
         const savedPlayerId = localStorage.getItem("playerId");
@@ -138,7 +137,7 @@ export default function App() {
     };
 
     const startGame = () => {
-        setKillTargets(null); // 清除上一局残留
+        setKillTargets(null); // 清除上一局的击杀目标
         socket.emit("startGame", { roomId });
     };
 
@@ -215,6 +214,30 @@ export default function App() {
                             {w}
                         </button>
                     ))}
+
+                    {playerId === currentHostId && (
+                        <div style={{ marginTop: "10px" }}>
+                            <input
+                                type="text"
+                                placeholder="自定义词语"
+                                value={customWord}
+                                onChange={(e) => setCustomWord(e.target.value)}
+                            />
+                            <button
+                                onClick={() => {
+                                    if (customWord.trim()) {
+                                        socket.emit("selectWord", {
+                                            roomId,
+                                            selected: customWord.trim()
+                                        });
+                                        setCustomWord("");
+                                    }
+                                }}
+                            >
+                                提交自定义词
+                            </button>
+                        </div>
+                    )}
                 </div>
             )}
 
