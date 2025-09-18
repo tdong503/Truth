@@ -62,8 +62,9 @@ io.on("connection", (socket) => {
             wordOptions: [],
             selectedVotes: {}, // ✅ 初始化空对象
             result: null,
-            votesRecord: {}, // 新增，保存投票人 → 被投对象
-            killTarget: null // 新增，狼人击杀目标
+            votesRecord: {}, // 保存投票人 → 被投对象
+            killTarget: null, // 狼人击杀目标
+            discussionTimerId: null
         };
 
         rooms.set(roomId, newRoom);
@@ -118,15 +119,19 @@ io.on("connection", (socket) => {
         const room = rooms.get(roomId);
         if (!room) return;
 
-        // 重置房间临时状态
+        // 🔄 重置房间临时状态
         room.wordOptions = [];
         room.selectedVotes = {};
         room.votesRecord = {};
         room.killTarget = null;
         room.result = null;
         room.timer = 0;
+        if (room.discussionTimerId) {
+            clearInterval(room.discussionTimerId);
+            room.discussionTimerId = null;
+        }
 
-        // 重置玩家状态
+        // 清掉玩家状态
         room.players.forEach(p => {
             p.myWord = null;
             p.role = null;
@@ -136,16 +141,13 @@ io.on("connection", (socket) => {
         const randomCaptain = room.players[Math.floor(Math.random() * room.players.length)];
         room.hostId = randomCaptain.id;
 
-        // 分配新角色
+        // 分配角色
         const roles = assignRoles(room.players.length);
         room.players.forEach((p, i) => (p.role = roles[i]));
 
         room.phase = "role";
 
-        // 发主持人信息
         io.to(roomId).emit("newHost", { id: room.hostId, name: randomCaptain.name });
-
-        // 发每个人的身份
         room.players.forEach((p) => io.to(p.socketId).emit("yourRole", p.role));
     });
 
@@ -169,7 +171,7 @@ io.on("connection", (socket) => {
 
         room.players.forEach((p) => {
             if (p.role === "seer" || p.role === "wolf") {
-                p.myWord = selected; // ✅ 保存词语
+                p.myWord = selected;
                 io.to(p.socketId).emit("yourWord", selected);
             }
         });
@@ -179,16 +181,42 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("discussionStart", { duration: room.duration });
 
         let remaining = room.duration;
-        const timer = setInterval(() => {
+        room.discussionTimerId = setInterval(() => {
             remaining--;
             room.timer = remaining;
             io.to(roomId).emit("timerUpdate", remaining);
             if (remaining <= 0) {
-                clearInterval(timer);
+                clearInterval(room.discussionTimerId);
+                room.discussionTimerId = null;
                 room.phase = "endDiscussion";
                 io.to(roomId).emit("discussionEnd");
             }
         }, 1000);
+    });
+
+    socket.on("forceEndDiscussion", ({ roomId }) => {
+        const room = rooms.get(roomId);
+        if (!room) return;
+        const host = room.players.find((p) => p.id === room.hostId);
+        if (!host || socket.id !== host.socketId) return; // 只能主持人触发
+
+        if (room.discussionTimerId) {
+            clearInterval(room.discussionTimerId);
+            room.discussionTimerId = null;
+        }
+
+        room.phase = "wolfKill";
+        room.killTarget = null;
+
+        // 保持完整列表
+        io.to(roomId).emit("playerList", room.players);
+
+        // 狼人可选目标列表
+        const wolves = room.players.filter(p => p.role === "wolf");
+        wolves.forEach((w) => {
+            const targetList = room.players.filter(p => p.role !== "wolf");
+            io.to(w.socketId).emit("killTargetList", targetList);
+        });
     });
 
     socket.on("selectWinner", ({ roomId, winner }) => {

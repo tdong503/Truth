@@ -37,11 +37,14 @@ export default function App() {
 
     const [killTargets, setKillTargets] = useState(null); // 设置去掉狼人的列表
 
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     // socket 事件监听
     useEffect(() => {
         socket.on("playerList", (list) => setPlayers(list));
         socket.on("yourRole", (r) => {
             setRole(r);
+            setMyWord(null);
             setPhase("role");
         });
         socket.on("wordList", (ws) => {
@@ -219,6 +222,17 @@ export default function App() {
                 <div>
                     <h2>讨论中...</h2>
                     <p>剩余时间: {timer}</p>
+                    {playerId === currentHostId && (
+                        <button
+                            onClick={() => {
+                                if (window.confirm("确定要提前结束并进入狼人击杀阶段吗？")) {
+                                    socket.emit("forceEndDiscussion", { roomId });
+                                }
+                            }}
+                        >
+                            提前结束讨论
+                        </button>
+                    )}
                 </div>
             )}
 
@@ -271,9 +285,11 @@ export default function App() {
                     ))}
                     {selectedVotes.length === 1 && (
                         <button
-                            onClick={() =>
-                                socket.emit("voteWolves", { roomId, votes: selectedVotes })
-                            }
+                            disabled={isSubmitting}
+                            onClick={() => {
+                                setIsSubmitting(true);
+                                socket.emit("voteWolves", { roomId, votes: selectedVotes });
+                            }}
                         >
                             提交
                         </button>
