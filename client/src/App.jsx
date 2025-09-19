@@ -115,7 +115,7 @@ export default function App() {
     const createRoom = () => {
         socket.emit(
             "createRoom",
-            { name, maxPlayers: 12, duration: 60 },
+            { name, maxPlayers: 12, duration: 240 },
             (res) => {
                 setRoomId(res.roomId);
                 setCreatorId(res.creatorId);
