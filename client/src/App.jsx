@@ -196,6 +196,12 @@ export default function App() {
                         width={600}
                         height={50}
                     />
+                    {playerId === currentHostId && (
+                        <>
+                            <p style={{ color: "red" }}>疑问句：是/不是/不知道</p>
+                            <p style={{ color: "red" }}>猜答案：接近了/差很多/正确</p>
+                        </>
+                    )}
                 </div>
             )}
 
