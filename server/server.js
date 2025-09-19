@@ -107,6 +107,20 @@ function enterWolfKill(roomId) {
     });
 }
 
+function pickHostWeighted(players) {
+    // 计算总权重
+    const totalWeight = players.reduce((sum, p) => sum + (p.hostWeight ?? 1), 0);
+    let rand = Math.random() * totalWeight;
+
+    for (const p of players) {
+        rand -= (p.hostWeight ?? 1);
+        if (rand <= 0) {
+            return p;
+        }
+    }
+    return players[0]; // 兜底
+}
+
 io.on("connection", (socket) => {
     console.log(`连接: ${socket.id}`);
 
@@ -150,6 +164,11 @@ io.on("connection", (socket) => {
         const room = rooms.get(roomId);
         if (!room) return callback({ error: "房间不存在" });
 
+        // 阶段检查：只有 waiting 才能加入
+        if (room.phase !== "waiting") {
+            return callback({ error: "游戏已开始，无法加入" });
+        }
+
         // 检查人数上限
         if (room.players.length >= room.maxPlayers) {
             return callback({ error: "房间已满" });
@@ -161,6 +180,29 @@ io.on("connection", (socket) => {
 
         io.to(roomId).emit("playerList", room.players);
         callback({ success: true, roomId, creatorId: room.creatorId, playerId });
+    });
+
+    // 主动退出
+    socket.on("leaveRoom", ({ roomId, playerId }) => {
+        const room = rooms.get(roomId);
+        if (!room) return;
+
+        // 从房间移除玩家
+        room.players = room.players.filter(p => p.id !== playerId);
+        socket.leave(roomId);
+
+        // 如果房间没人了，删除房间
+        if (room.players.length === 0) {
+            rooms.delete(roomId);
+        } else {
+            // 如果原房主退出，移交给第一个玩家
+            const wasCreator = playerId === room.creatorId;
+            if (wasCreator) {
+                room.creatorId = room.players[0].id;
+            }
+
+            io.to(roomId).emit("playerList", room.players);
+        }
     });
 
     // 重连
@@ -182,7 +224,7 @@ io.on("connection", (socket) => {
             players: room.players,
             phase: room.phase,
             timer: room.timer || 0,
-            wordOptions: room.wordOptions || [],
+            wordOptions: (player.id === room.hostId ? room.wordOptions : []),
             myRole: player.role || null,
             myWord: player.myWord || null,
             selectedVotes: (room.selectedVotes && room.selectedVotes[player.id]) || [],
@@ -196,10 +238,10 @@ io.on("connection", (socket) => {
         if (!room) return;
 
         // 人数检查
-        if (room.players.length < 4) {
-            io.to(roomId).emit("errorMessage", "人数不足，至少需要 4 名玩家才能开始游戏");
-            return;
-        }
+        // if (room.players.length < 4) {
+        //     io.to(roomId).emit("errorMessage", "人数不足，至少需要 4 名玩家才能开始游戏");
+        //     return;
+        // }
 
         // 重置房间状态
         room.wordOptions = [];
@@ -220,9 +262,23 @@ io.on("connection", (socket) => {
             io.to(p.socketId).emit("killTargetList", []);
         });
 
+        // 初始化 hostWeight，第一次进游戏全部为 1
+        room.players.forEach(p => {
+            if (p.hostWeight === undefined) p.hostWeight = 1;
+        });
+
         // 随机主持人
-        const randomCaptain = room.players[Math.floor(Math.random() * room.players.length)];
+        const randomCaptain = pickHostWeighted(room.players);
         room.hostId = randomCaptain.id;
+
+        // 更新权重
+        room.players.forEach(p => {
+            if (p.id === room.hostId) {
+                p.hostWeight = 1; // 重置
+            } else {
+                p.hostWeight += 0.3; // 每局没当 +1
+            }
+        });
 
         try {
             // 分配身份
@@ -238,7 +294,16 @@ io.on("connection", (socket) => {
         io.to(roomId).emit("newHost", { id: room.hostId, name: randomCaptain.name });
 
         // 单独发送身份给每个玩家
-        room.players.forEach((p) => io.to(p.socketId).emit("yourRole", p.role));
+        room.players.forEach((p) => {
+            if (p.role === "wolf") {
+                const wolfNames = room.players
+                    .filter(pp => pp.role === "wolf" && pp.id !== p.id)
+                    .map(pp => pp.name);
+                io.to(p.socketId).emit("yourRole", { role: p.role, wolves: wolfNames });
+            } else {
+                io.to(p.socketId).emit("yourRole", { role: p.role });
+            }
+        });
     });
 
     // 主持人获取词列表
@@ -265,7 +330,7 @@ io.on("connection", (socket) => {
         if (!selected) return; // 防止空字符串
 
         room.players.forEach((p) => {
-            if (p.role === "seer" || p.role === "wolf") {
+            if (p.role === "seer" || p.role === "wolf" || p.id === room.hostId) {
                 p.myWord = selected;
                 io.to(p.socketId).emit("yourWord", selected);
             }
