@@ -5,7 +5,7 @@
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
-    "build": "cd client && npm install && npm run build"
+    "postinstall": "cd client && npm install && npm run build"
   },
   "dependencies": {
     "cors": "^2.8.5",
