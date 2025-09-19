@@ -1,12 +1,13 @@
-import React, {useState, useEffect} from "react";
-import {io} from "socket.io-client";
+import React, { useState, useEffect } from "react";
+import { io } from "socket.io-client";
 import HiddenCard from "./HiddenCard";
+import "./App.css";
 
 const socket = io();
 
-function PlayerList({players, currentHostId, creatorId}) {
+function PlayerList({ players, currentHostId, creatorId }) {
     return (
-        <ul style={{listStyle: "none", padding: 0}}>
+        <ul className="player-list">
             {players.map((p) => (
                 <li key={p.id}>
                     {p.name}
@@ -36,17 +37,15 @@ export default function App() {
 
     const [killTargets, setKillTargets] = useState(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // 新增：主持人自定义词
     const [customWord, setCustomWord] = useState("");
 
     useEffect(() => {
         socket.on("playerList", (list) => setPlayers(list));
-        socket.on("yourRole", ({role, wolves}) => {
+        socket.on("yourRole", ({ role, wolves }) => {
             setRole(role);
             setMyWord(null);
             if (role === "wolf" && wolves && wolves.length > 0) {
-                setRole(`${role}（同伴: ${wolves.join(", ")}）`);
+                setRole(`${role}（同伴: ${wolves.join(", ")})`);
             }
             setPhase("role");
         });
@@ -55,7 +54,7 @@ export default function App() {
             setPhase("wordSelect");
         });
         socket.on("yourWord", (w) => setMyWord(w));
-        socket.on("discussionStart", ({duration}) => {
+        socket.on("discussionStart", ({ duration }) => {
             setPhase("discussion");
             setTimer(duration);
         });
@@ -74,14 +73,12 @@ export default function App() {
             setResult(res);
             setPhase("result");
         });
-        socket.on("newHost", ({id}) => setCurrentHostId(id));
+        socket.on("newHost", ({ id }) => setCurrentHostId(id));
         socket.on("killTargetList", (list) => {
             setKillTargets(list);
             setPhase("wolfKill");
         });
-        socket.on("errorMessage", (msg) => {
-            alert(msg);
-        });
+        socket.on("errorMessage", (msg) => alert(msg));
     }, []);
 
     useEffect(() => {
@@ -97,7 +94,7 @@ export default function App() {
         if (savedRoomId && savedPlayerId) {
             socket.emit(
                 "reconnectPlayer",
-                {roomId: savedRoomId, playerId: savedPlayerId},
+                { roomId: savedRoomId, playerId: savedPlayerId },
                 (res) => {
                     if (res.success) {
                         setRoomId(res.roomId);
@@ -122,21 +119,14 @@ export default function App() {
     }, []);
 
     const createRoom = () => {
-        if (!name) {
-            alert("请输入昵称");
-            return
-        }
-        socket.emit(
-            "createRoom",
-            {name, maxPlayers: 12, duration: 240},
-            (res) => {
-                setRoomId(res.roomId);
-                setCreatorId(res.creatorId);
-                setPlayerId(res.playerId);
-                localStorage.setItem("roomId", res.roomId);
-                localStorage.setItem("playerId", res.playerId);
-            }
-        );
+        if (!name) return alert("请输入昵称");
+        socket.emit("createRoom", { name, maxPlayers: 12, duration: 240 }, (res) => {
+            setRoomId(res.roomId);
+            setCreatorId(res.creatorId);
+            setPlayerId(res.playerId);
+            localStorage.setItem("roomId", res.roomId);
+            localStorage.setItem("playerId", res.playerId);
+        });
         setPhase("waiting");
     };
 
@@ -162,7 +152,7 @@ export default function App() {
 
     const leaveRoom = () => {
         if (!roomId || !playerId) return;
-        socket.emit("leaveRoom", {roomId, playerId});
+        socket.emit("leaveRoom", { roomId, playerId });
         localStorage.removeItem("roomId");
         localStorage.removeItem("playerId");
         setRoomId("");
@@ -171,19 +161,23 @@ export default function App() {
     };
 
     const startGame = () => {
-        // if (players.length < 4) {
-        //     alert("人数不足，至少需要 4 名玩家才能开始游戏");
-        //     return;
-        // }
+        if (players.length < 4) return alert("人数不足，至少需要 4 名玩家");
         setKillTargets(null); // 清除上一局的击杀目标
-        socket.emit("startGame", {roomId});
+        socket.emit("startGame", { roomId });
     };
 
     return (
-        <div>
+        <div className="app-container">
             {players.length > 0 && (
-                <div>
-                    <h3>房间ID: {roomId}</h3>
+                <div className="room-info">
+                    <h3>
+                        房间 ID: {roomId}
+                        {phase === "result" && result && (
+                            <button className="danger" onClick={leaveRoom}>
+                                退出房间
+                            </button>
+                        )}
+                    </h3>
                     <PlayerList
                         players={players}
                         currentHostId={currentHostId}
@@ -193,66 +187,66 @@ export default function App() {
             )}
 
             {phase === "lobby" && (
-                <div>
+                <div className="panel">
                     <h1>狼人真言</h1>
-                    <input
-                        placeholder="昵称"
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                    />
-                    <button onClick={createRoom}>创建房间</button>
-                    <input
-                        placeholder="房间ID"
-                        value={roomId}
-                        onChange={(e) => setRoomId(e.target.value)}
-                    />
-                    <button onClick={joinRoom}>加入房间</button>
+                    <input placeholder="昵称" value={name} onChange={(e) => setName(e.target.value)} />
+                    <input placeholder="房间ID（加入房间必填）" value={roomId} onChange={(e) => setRoomId(e.target.value)} />
+
+                    <div className="button-group">
+                        <button className={name && roomId ? "primary" : "secondary"} disabled={!name || !roomId} onClick={joinRoom}>加入房间</button>
+                        <span className="or">或</span>
+                        <button className={!roomId ? "primary" : "secondary"} disabled={!name} onClick={createRoom}>创建房间</button>
+                    </div>
                 </div>
             )}
 
             {phase === "waiting" && (
-                <div>
+                <div className="panel">
                     {playerId === creatorId && (
-                        <button onClick={startGame}>开始游戏（房主专属）</button>
+                        <button className="primary" onClick={startGame}>
+                            开始游戏
+                        </button>
                     )}
                     {roomId && (
                         <button
+                            className="secondary"
                             onClick={() => {
-                                const shareLink = `${window.location.origin}?roomId=${roomId}`;
-                                navigator.clipboard.writeText(shareLink)
-                                    .then(() => alert("分享链接已复制到剪贴板"))
+                                const link = `${window.location.origin}?roomId=${roomId}`;
+                                navigator.clipboard
+                                    .writeText(link)
+                                    .then(() => alert("分享链接已复制！"))
                                     .catch(() => alert("复制失败"));
                             }}
                         >
                             分享房间链接
                         </button>
                     )}
-                    <button onClick={leaveRoom} style={{marginBottom: "10px"}}>
+                    <button className="danger" onClick={leaveRoom}>
                         退出房间
                     </button>
                 </div>
             )}
 
             {phase !== "lobby" && phase !== "waiting" && (
-                <div>
+                <div className="role-card">
                     <h2>身份</h2>
                     <HiddenCard
                         text={myWord ? `${role}，词语是：${myWord}` : role}
-                        cover="盖牌"
+                        cover="鼠标放到上面查看身份"
                         width={600}
                         height={50}
                     />
                     {playerId === currentHostId && (
-                        <>
-                            <p style={{color: "red"}}>疑问句：是/不是/不知道</p>
-                            <p style={{color: "red"}}>猜答案：接近了/差很多/正确</p>
-                        </>
+                        <div className="tips">
+                            <p>疑问句：是 / 不是 / 不知道</p>
+                            <p>猜答案：接近了 / 差很多 / 正确</p>
+                        </div>
                     )}
                 </div>
             )}
 
             {phase === "role" && (
-                <div>
+                <div className="panel">
                     {playerId === currentHostId && (
                         <button onClick={() => socket.emit("getWordList", {roomId})}>
                             获取词列表（主持人专属）
@@ -262,117 +256,102 @@ export default function App() {
                 </div>
             )}
 
-            {phase === "wordSelect" && (
-                <div>
-                    {playerId === currentHostId && (
-                        <>
-                            <h2>选择词</h2>
-                            {wordOptions.map((w, idx) => (
-                                <button
-                                    key={idx}
-                                    onClick={() => socket.emit("selectWord", {roomId, selected: w})}
-                                >
-                                    {w}
-                                </button>
-                            ))}
-                            <div style={{marginTop: "10px"}}>
-                                <input
-                                    type="text"
-                                    placeholder="自定义词语"
-                                    value={customWord}
-                                    onChange={(e) => setCustomWord(e.target.value)}
-                                />
-                                <button
-                                    onClick={() => {
-                                        if (customWord.trim()) {
-                                            socket.emit("selectWord", {
-                                                roomId,
-                                                selected: customWord.trim()
-                                            });
-                                            setCustomWord("");
-                                        }
-                                    }}
-                                >
-                                    提交自定义词
-                                </button>
-                            </div>
-                        </>
-                    )}
-                    {playerId !== currentHostId && <p>等待主持人获取词列表...</p>}
+            {phase === "wordSelect" && playerId === currentHostId && (
+                <div className="panel">
+                    <h2>选择词</h2>
+                    <div className="button-grid">
+                        {wordOptions.map((w, idx) => (
+                            <button
+                                key={idx}
+                                className="primary"
+                                onClick={() => socket.emit("selectWord", { roomId, selected: w })}
+                            >
+                                {w}
+                            </button>
+                        ))}
+                    </div>
+                    <input
+                        placeholder="自定义词语"
+                        value={customWord}
+                        onChange={(e) => setCustomWord(e.target.value)}
+                    />
+                    <button
+                        className="secondary"
+                        onClick={() => {
+                            if (customWord.trim()) {
+                                socket.emit("selectWord", {
+                                    roomId,
+                                    selected: customWord.trim(),
+                                });
+                                setCustomWord("");
+                            }
+                        }}
+                    >
+                        提交自定义词
+                    </button>
                 </div>
             )}
 
             {phase === "discussion" && (
-                <div>
+                <div className="panel">
                     <h2>讨论中...</h2>
                     <p>剩余时间: {timer}</p>
                     {playerId === currentHostId && (
-                        <button
-                            onClick={() => {
-                                if (window.confirm("确定要提前结束并进入狼人击杀阶段吗？")) {
-                                    socket.emit("forceEndDiscussion", {roomId});
-                                }
-                            }}
-                        >
-                            提前结束讨论
-                        </button>
+                        <div className="button-grid">
+                            <button
+                                onClick={() => {
+                                    if (window.confirm("确定要提前结束并进入狼人击杀阶段吗？")) {
+                                        socket.emit("forceEndDiscussion", {roomId});
+                                    }
+                                }}
+                            >
+                                提前结束讨论
+                            </button>
+                        </div>
                     )}
                 </div>
             )}
 
-            {phase === "endDiscussion" && playerId === currentHostId && (
-                <div>
-                    <h2>是否猜到词语</h2>
-                    <button
-                        onClick={() =>
-                            socket.emit("selectWinner", {roomId, winner: "good"})
-                        }
-                    >
-                        是
-                    </button>
-                    <button
-                        onClick={() =>
-                            socket.emit("selectWinner", {roomId, winner: "wolf"})
-                        }
-                    >
-                        否
-                    </button>
-                </div>
-            )}
-
             {phase === "wolfKill" && (
-                <div>
+                <div className="panel">
                     <h2>狼人击杀</h2>
-                    {(killTargets || []).map((p) => (
-                        <button
-                            key={p.id}
-                            onClick={() =>
-                                socket.emit("wolfKill", {roomId, targetId: p.id})
-                            }
-                        >
-                            {p.name}
-                        </button>
-                    ))}
+                    <div className="button-grid">
+                        {(killTargets || []).map((p) => (
+                            <button
+                                key={p.id}
+                                className="danger"
+                                onClick={() =>
+                                    socket.emit("wolfKill", { roomId, targetId: p.id })
+                                }
+                            >
+                                {p.name}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
             {phase === "vote" && (
-                <div>
+                <div className="panel">
                     <h2>全民投票（每人选1个玩家）</h2>
-                    {players.map((p) => (
-                        <button
-                            key={p.id}
-                            onClick={() => setSelectedVotes([p.id])}
-                        >
-                            {p.name} {selectedVotes.includes(p.id) ? "✅" : ""}
-                        </button>
-                    ))}
+                    <div className="button-grid">
+                        {players.map((p) => (
+                            <button
+                                key={p.id}
+                                className={selectedVotes.includes(p.id) ? "primary" : "secondary"}
+                                onClick={() => setSelectedVotes([p.id])}
+                            >
+                                {p.name}
+                            </button>
+                        ))}
+                    </div>
                     {selectedVotes.length === 1 && (
                         <button
+                            className="primary"
                             disabled={isSubmitting}
                             onClick={() => {
                                 setIsSubmitting(true);
-                                socket.emit("voteWolves", {roomId, votes: selectedVotes});
+                                socket.emit("voteWolves", { roomId, votes: selectedVotes });
                             }}
                         >
                             提交
@@ -382,12 +361,11 @@ export default function App() {
             )}
 
             {phase === "result" && result && (
-                <div>
+                <div className="panel">
                     <h2>结果</h2>
                     <p>胜方: {result.winner === "good" ? "好人" : "狼人"}</p>
                     <p>预言家: {result.seerName}</p>
                     <p>狼人: {result.wolfNames?.join(", ")}</p>
-
                     {result.votesRecord && Object.keys(result.votesRecord).length > 0 && (
                         <div>
                             <h3>投票结果:</h3>
@@ -411,15 +389,11 @@ export default function App() {
                             </ul>
                         </div>
                     )}
-
                     {playerId === currentHostId && (
-                        <button onClick={startGame}>
+                        <button className="primary" onClick={startGame}>
                             重新开局
                         </button>
                     )}
-                    <button onClick={leaveRoom} style={{marginBottom: "10px"}}>
-                        退出房间
-                    </button>
                 </div>
             )}
         </div>

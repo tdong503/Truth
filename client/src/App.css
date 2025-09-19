@@ -1,0 +1,81 @@
+.app-container {
+    font-family: Arial, sans-serif;
+    padding: 1rem;
+    background: #f4f4f4;
+    min-height: 100vh;
+}
+
+.room-info {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+}
+
+.player-list {
+    padding: 0 1.2rem;
+    margin: 0;
+    list-style: decimal;
+}
+
+.player-list li {
+    padding-bottom: 0.5rem;
+}
+
+.panel {
+    background: white;
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 8px;
+}
+
+.button-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+button {
+    padding: 0.5rem 1rem;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+}
+
+button.primary {
+    background: #007bff;
+    color: white;
+}
+
+button.secondary {
+    background: #6c757d;
+    color: white;
+}
+
+button.danger {
+    background: #dc3545;
+    color: white;
+}
+
+button:disabled {
+    background: #ccc;
+}
+
+input {
+    padding: 0.5rem;
+    margin: 0.5rem 0;
+    display: block;
+    min-width: 15rem;
+    /*width: 90%;*/
+}
+
+.role-card {
+    background: white;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1rem;
+}
+
+.tips {
+    color: red;
+    font-weight: bold;
+}
